@@ -53,6 +53,7 @@ HELP_TEXT = (
     "/shop — магазин машин (покупка, улучшение, ремонт)\n"
     "/storm — выехать на охоту за торнадо\n"
     "/balance — быстро проверить баланс\n"
+    "/top — 🏆 топ-10 охотников\n"
     "/name Имя — сменить игровое имя\n"
     "/help — это сообщение\n\n"
     "<b>Валюта:</b> Магшиормы (МШ)\n"
@@ -102,6 +103,22 @@ def answer_callback(callback_id, text="", alert=False):
         "text": text,
         "show_alert": alert,
     }, timeout=5)
+
+
+def register_commands():
+    """Регистрирует список команд в меню Telegram (кнопка около строки ввода)."""
+    commands = [
+        {"command": "profil",  "description": "👤 Профиль, баланс и гараж"},
+        {"command": "storm",   "description": "🌪️ Охота на торнадо"},
+        {"command": "shop",    "description": "🔧 Магазин машин"},
+        {"command": "garage",  "description": "🚗 Список машин в гараже"},
+        {"command": "top",     "description": "🏆 Топ-10 охотников"},
+        {"command": "balance", "description": "💰 Быстро проверить баланс"},
+        {"command": "name",    "description": "✏️ Сменить имя (/name ТвоёИмя)"},
+        {"command": "help",    "description": "❓ Помощь и правила игры"},
+        {"command": "start",   "description": "🚀 Начать игру"},
+    ]
+    requests.post(f"{TG_API}/setMyCommands", json={"commands": commands}, timeout=10)
 
 
 # ─── РАБОТА С БД ───
@@ -155,6 +172,7 @@ def boost_status(boost_used_at):
 
 def cmd_start(conn, chat_id: int, user_id: int, first_name: str):
     user = get_or_create_user(conn, user_id, first_name)
+    register_commands()
     text = (
         "🌪️ <b>ШТОРМ — Охотники за торнадо</b>\n\n"
         f"Добро пожаловать, <b>{user['name']}</b>!\n"
@@ -241,6 +259,28 @@ def cmd_garage(conn, chat_id: int, user_id: int, first_name: str):
         lines += f"{car['emoji']} <b>{car['name']}</b> — {status}\n"
 
     send(chat_id, lines)
+
+
+def cmd_top(conn, chat_id: int):
+    """Топ-10 охотников по балансу."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT name, balance, "
+            "(SELECT COUNT(*) FROM user_cars WHERE telegram_id = u.telegram_id) AS cars "
+            "FROM users u ORDER BY balance DESC LIMIT 10"
+        )
+        rows = cur.fetchall()
+
+    if not rows:
+        send(chat_id, "🏆 Таблица лидеров пока пуста. Будь первым!")
+        return
+
+    medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    text = "🏆 <b>ТОП-10 ОХОТНИКОВ ЗА ТОРНАДО</b>\n─────────────────\n"
+    for i, (name, balance, cars) in enumerate(rows):
+        text += f"{medals[i]} <b>{name}</b> — {balance:,} МШ · 🚗{cars}\n"
+    text += "─────────────────\n<i>Обнови баланс охотой!</i>"
+    send(chat_id, text)
 
 
 def cmd_shop(conn, chat_id: int, user_id: int, first_name: str, page: int = 0):
@@ -559,6 +599,12 @@ def handler(event: dict, context) -> dict:
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
+    # GET-запрос — регистрируем команды и возвращаем статус
+    if event.get("httpMethod") == "GET":
+        register_commands()
+        return {"statusCode": 200, "headers": {**CORS, "Content-Type": "application/json"},
+                "body": json.dumps({"status": "ok", "bot": "ШТОРМ"})}
+
     raw_body = event.get("body") or "{}"
     if isinstance(raw_body, dict):
         body = raw_body
@@ -666,6 +712,8 @@ def handler(event: dict, context) -> dict:
             cmd_shop(conn, chat_id, user_id, first_name, 0)
         elif cmd == "/storm":
             cmd_storm(conn, chat_id, user_id, first_name)
+        elif cmd == "/top":
+            cmd_top(conn, chat_id)
         elif text and text.startswith("/"):
             # Неизвестная команда — только в личке, не спамить в группах
             if msg["chat"]["type"] == "private":
