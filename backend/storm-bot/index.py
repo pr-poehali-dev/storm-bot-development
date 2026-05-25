@@ -54,6 +54,7 @@ HELP_TEXT = (
     "/storm — выехать на охоту за торнадо\n"
     "/balance — быстро проверить баланс\n"
     "/top — 🏆 топ-10 охотников\n"
+    "/ai Вопрос — 🤖 спросить ИИ-помощника\n"
     "/name Имя — сменить игровое имя\n"
     "/help — это сообщение\n\n"
     "<b>Валюта:</b> Магшиормы (МШ)\n"
@@ -114,11 +115,87 @@ def register_commands():
         {"command": "garage",  "description": "🚗 Список машин в гараже"},
         {"command": "top",     "description": "🏆 Топ-10 охотников"},
         {"command": "balance", "description": "💰 Быстро проверить баланс"},
+        {"command": "ai",      "description": "🤖 Спросить ИИ-помощника"},
         {"command": "name",    "description": "✏️ Сменить имя (/name ТвоёИмя)"},
         {"command": "help",    "description": "❓ Помощь и правила игры"},
         {"command": "start",   "description": "🚀 Начать игру"},
     ]
     requests.post(f"{TG_API}/setMyCommands", json={"commands": commands}, timeout=10)
+
+
+# ─── ИИ-ПОМОЩНИК ───
+
+AI_SYSTEM_PROMPT = (
+    "Ты — Шторм, дружелюбный ИИ-помощник Telegram-бота про охоту на торнадо. "
+    "Игра называется «ШТОРМ». Валюта — Магшиормы (МШ). "
+    "В игре 10 машин-перехватчиков: Доминатор (5000 МШ), Циклон (8000), Ураган (12000), "
+    "Титан (16000), Вихрь (21000), Смерч (26000), Тайфун (31000), Гроза (37000), "
+    "Немезида (43000), Армагеддон (50000). "
+    "Торнадо EF1–EF5, шансы 80/65/50/35/20%, награды 300/600/1100/2000/4000 МШ. "
+    "Машины улучшаются до 3 уровней, ремонт 500 МШ. "
+    "Буст +200 МШ каждые 20 минут. "
+    "Отвечай коротко и по делу, максимум 3-4 предложения. "
+    "Пиши на русском языке. Не используй markdown — только обычный текст."
+)
+
+
+def ask_ai(question: str) -> str:
+    """Отправляет вопрос в Pollinations.ai и возвращает ответ."""
+    try:
+        payload = {
+            "messages": [
+                {"role": "system", "content": AI_SYSTEM_PROMPT},
+                {"role": "user",   "content": question[:500]},
+            ],
+            "model": "openai",
+            "private": True,
+        }
+        resp = requests.post(
+            "https://text.pollinations.ai/",
+            json=payload,
+            timeout=25,
+            headers={"Content-Type": "application/json"},
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            # Pollinations возвращает либо строку, либо объект с choices
+            if isinstance(data, str):
+                return data.strip()
+            if isinstance(data, dict):
+                # формат OpenAI-совместимый
+                choices = data.get("choices", [])
+                if choices:
+                    return choices[0].get("message", {}).get("content", "").strip()
+                # или просто текст
+                return data.get("text", "").strip() or data.get("content", "").strip()
+        return None
+    except Exception:
+        return None
+
+
+def cmd_ai(chat_id: int, question: str, first_name: str = ""):
+    """Команда /ai вопрос — отвечает ИИ-помощник."""
+    question = question.strip()
+    if not question:
+        send(chat_id,
+             "🤖 <b>ИИ-помощник «Шторм»</b>\n\n"
+             "Задай вопрос об игре:\n"
+             "<code>/ai какую машину купить первой?</code>\n"
+             "<code>/ai как работает охота?</code>\n\n"
+             "В личке можно писать просто текст без /ai"
+        )
+        return
+
+    send(chat_id, "🤖 Думаю...")
+    answer = ask_ai(question)
+
+    if answer:
+        name_part = f"<b>{first_name}</b>, " if first_name else ""
+        send(chat_id, f"🤖 {name_part}{answer}")
+    else:
+        send(chat_id,
+             "⚠️ ИИ временно недоступен. Попробуй /help — там есть все ответы!"
+        )
 
 
 # ─── РАБОТА С БД ───
@@ -179,7 +256,8 @@ def cmd_start(conn, chat_id: int, user_id: int, first_name: str):
         "Ты — охотник на торнадо. Покупай машины-перехватчики,\n"
         "улучшай их и выезжай на охоту!\n\n"
         f"💰 Стартовый баланс: <b>{user['balance']:,} МШ</b>\n\n"
-        "/help — все команды и правила игры"
+        "/help — все команды и правила игры\n"
+        "🤖 Просто напиши мне — отвечу на любой вопрос об игре!"
     )
     send(chat_id, text)
 
@@ -714,10 +792,15 @@ def handler(event: dict, context) -> dict:
             cmd_storm(conn, chat_id, user_id, first_name)
         elif cmd == "/top":
             cmd_top(conn, chat_id)
+        elif cmd == "/ai":
+            cmd_ai(chat_id, arg, first_name)
         elif text and text.startswith("/"):
             # Неизвестная команда — только в личке, не спамить в группах
             if msg["chat"]["type"] == "private":
                 send(chat_id, "❓ Неизвестная команда. /help — список команд")
+        elif text and not text.startswith("/") and msg["chat"]["type"] == "private":
+            # В личке любое сообщение не-команда → ИИ отвечает
+            cmd_ai(chat_id, text, first_name)
 
     finally:
         conn.close()
