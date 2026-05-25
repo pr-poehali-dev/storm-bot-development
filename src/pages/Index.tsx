@@ -126,8 +126,10 @@ function ProfileTab({
 
   const handleBoost = () => {
     if (!canBoost) return;
+    const now = Date.now();
     setBalance(balance + 200);
-    setLastBoost(Date.now());
+    setLastBoost(now);
+    saveBoostTime(now);
     setBoostEffect(true);
     setTimeout(() => setBoostEffect(false), 600);
   };
@@ -777,13 +779,33 @@ function StormTab({
   return null;
 }
 
+const LS_BOOST_KEY = "storm_boost_used_at";
+
+function loadBoostTime(): number {
+  try {
+    const v = localStorage.getItem(LS_BOOST_KEY);
+    return v ? parseInt(v, 10) : 0;
+  } catch (e) {
+    console.warn("localStorage unavailable", e);
+    return 0;
+  }
+}
+
+function saveBoostTime(ts: number) {
+  try {
+    localStorage.setItem(LS_BOOST_KEY, String(ts));
+  } catch (e) {
+    console.warn("localStorage unavailable", e);
+  }
+}
+
 /* ─────────── ГЛАВНЫЙ КОМПОНЕНТ ─────────── */
 export default function Index() {
   const [tab, setTab] = useState<Tab>("profile");
   const [balance, setBalance] = useState(5000);
   const [name, setName] = useState("Охотник");
   const [ownedCars, setOwnedCars] = useState<OwnedCar[]>([]);
-  const [lastBoost, setLastBoost] = useState(0);
+  const [lastBoost, setLastBoost] = useState<number>(() => loadBoostTime());
 
   return (
     <div className="min-h-screen bg-background noise bg-grid">

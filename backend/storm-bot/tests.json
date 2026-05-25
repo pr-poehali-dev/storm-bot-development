@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "Health check - GET returns 200",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Telegram update - empty body",
+      "method": "POST",
+      "path": "/",
+      "body": "{}",
+      "expectedStatus": 200
+    }
+  ]
+}

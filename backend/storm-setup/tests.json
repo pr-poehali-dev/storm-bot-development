@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Register webhook",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"set_webhook": {"ok": true}},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
